@@ -1,9 +1,0 @@
-{
-  "name": "xhs-scraper-vercel",
-  "version": "1.0.0",
-  "private": true,
-  "description": "XHS (Xiaohongshu) post/profile scraper deployed as Vercel serverless functions.",
-  "engines": {
-    "node": ">=18"
-  }
-}
