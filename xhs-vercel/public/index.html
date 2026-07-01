@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>XHS Scraper</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161922;
+    --border: #262b38;
+    --text: #e7e9ee;
+    --muted: #8b90a0;
+    --accent: #ff2442; /* xiaohongshu red */
+    --accent-dim: #7a1120;
+    --ok: #3ddc97;
+    --err: #ff6b6b;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  h1 span { color: var(--accent); }
+  p.sub { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 8px; }
+  textarea, input[type=text] {
+    width: 100%;
+    background: #0c0e13;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+  }
+  textarea { min-height: 100px; }
+  textarea:focus, input:focus { outline: 2px solid var(--accent-dim); border-color: var(--accent); }
+
+  .row { display: flex; gap: 10px; margin-top: 14px; align-items: center; }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 11px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:hover:not(:disabled) { background: #e01d3a; }
+  .hint { color: var(--muted); font-size: 12px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 4px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    word-break: break-word;
+  }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .status-SUCCESS { color: var(--ok); font-weight: 600; }
+  .status-other { color: var(--err); font-weight: 600; }
+  .empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
+
+  .api-box {
+    font-size: 12px;
+    color: var(--muted);
+    background: #0c0e13;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    overflow-x: auto;
+    white-space: pre;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>XHS <span>Scraper</span></h1>
+  <p class="sub">Paste Xiaohongshu post or profile URLs (one per line) and fetch data.</p>
+
+  <div class="panel">
+    <label for="urls">URLs</label>
+    <textarea id="urls" placeholder="https://www.xiaohongshu.com/explore/xxxxxxxxxxxxxxxx
+https://www.xiaohongshu.com/user/profile/xxxxxxxxxxxxxxxx"></textarea>
+    <div class="row">
+      <button id="runBtn">Fetch Data</button>
+      <span class="hint" id="statusText"></span>
+    </div>
+  </div>
+
+  <div class="panel" id="resultsPanel" style="display:none;">
+    <div style="overflow-x:auto;">
+      <table id="resultsTable">
+        <thead>
+          <tr>
+            <th>Type</th><th>Name</th><th>Likes+Fav</th><th>Comments</th>
+            <th>Favorites</th><th>Title/Desc</th><th>Date</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <label>API usage (call this from Excel Online, Google Sheets, curl, etc.)</label>
+    <div class="api-box">GET  /api/scrape?url=&lt;xhs_url&gt;
+POST /api/scrape        body: { "url": "&lt;xhs_url&gt;" }
+POST /api/batch         body: { "urls": ["&lt;url1&gt;", "&lt;url2&gt;", ...] }  (max 25 per call)</div>
+  </div>
+</div>
+
+<script>
+const runBtn = document.getElementById("runBtn");
+const urlsEl = document.getElementById("urls");
+const statusText = document.getElementById("statusText");
+const resultsPanel = document.getElementById("resultsPanel");
+const resultsBody = document.getElementById("resultsBody");
+
+runBtn.addEventListener("click", async () => {
+  const raw = urlsEl.value.split("\n").map(s => s.trim()).filter(Boolean);
+  if (!raw.length) { statusText.textContent = "Add at least one URL."; return; }
+
+  runBtn.disabled = true;
+  resultsBody.innerHTML = "";
+  resultsPanel.style.display = "block";
+  statusText.textContent = `Fetching ${raw.length} URL(s)...`;
+
+  try {
+    const res = await fetch("/api/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls: raw })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      statusText.textContent = "Error: " + (data.error || "unknown");
+      return;
+    }
+    data.results.forEach(r => {
+      const tr = document.createElement("tr");
+      const statusClass = r.status === "SUCCESS" ? "status-SUCCESS" : "status-other";
+      tr.innerHTML = `
+        <td>${esc(r.type)}</td>
+        <td>${esc(r.displayName)}</td>
+        <td>${esc(r.likesFavorites)}</td>
+        <td>${esc(r.comments)}</td>
+        <td>${esc(r.favorites)}</td>
+        <td>${esc(r.title)}</td>
+        <td>${esc(r.date)}</td>
+        <td class="${statusClass}">${esc(r.status)}</td>
+      `;
+      resultsBody.appendChild(tr);
+    });
+    statusText.textContent = `Done: ${data.count} row(s).`;
+  } catch (e) {
+    statusText.textContent = "Request failed: " + e.message;
+  } finally {
+    runBtn.disabled = false;
+  }
+});
+
+function esc(s) {
+  if (s === undefined || s === null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+</script>
+</body>
+</html>
